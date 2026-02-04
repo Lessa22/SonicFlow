@@ -17,6 +17,7 @@ class PreferencesManager @Inject constructor(
         private const val KEY_IS_LOGGED_IN = "is_logged_in"
         private const val KEY_LAST_TRACK_ID = "last_track_id"
         private const val KEY_LAST_POSITION = "last_position"
+        private const val KEY_WAS_PLAYING = "was_playing"
     }
 
     var isLoggedIn: Boolean
@@ -30,4 +31,17 @@ class PreferencesManager @Inject constructor(
     var lastPosition: Long
         get() = prefs.getLong(KEY_LAST_POSITION, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_POSITION, value).apply()
+
+    var wasPlaying: Boolean
+        get() = prefs.getBoolean(KEY_WAS_PLAYING, false)
+        set(value) = prefs.edit().putBoolean(KEY_WAS_PLAYING, value).apply()
+
+    fun savePlayerState(trackId: Long, position: Long, isPlaying: Boolean) {
+        prefs.edit().apply {
+            putLong(KEY_LAST_TRACK_ID, trackId)
+            putLong(KEY_LAST_POSITION, position)
+            putBoolean(KEY_WAS_PLAYING, isPlaying)
+            apply()
+        }
+    }
 }

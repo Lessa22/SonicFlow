@@ -104,6 +104,34 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
+                    // Waveform
+                    if (uiState.waveformAmplitudes.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
+                        ) {
+                            WaveformView(
+                                amplitudes = uiState.waveformAmplitudes,
+                                progress = if (uiState.duration > 0) {
+                                    uiState.currentPosition.toFloat() / uiState.duration.toFloat()
+                                } else {
+                                    0f
+                                },
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                                onSeek = { progress ->
+                                    val duration = uiState.duration
+                                    if (duration > 0) {
+                                        val position = (duration * progress).toLong()
+                                        viewModel.onSeekTo(position)
+                                    }
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
                     // Seek Bar
                     Column(modifier = Modifier.fillMaxWidth()) {
                         val duration = uiState.duration.coerceAtLeast(1L)
