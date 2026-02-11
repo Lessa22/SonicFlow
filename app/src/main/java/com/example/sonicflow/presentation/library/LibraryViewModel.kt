@@ -6,30 +6,34 @@ import com.example.sonicflow.domain.model.Playlist
 import com.example.sonicflow.domain.model.Track
 import com.example.sonicflow.domain.repository.MusicRepository
 import com.example.sonicflow.domain.repository.PlaylistRepository
+import com.example.sonicflow.service.MusicController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class SortOrder {
-    TITLE_ASC, TITLE_DESC, DATE_ADDED_DESC, DURATION_ASC
-}
-
 data class LibraryUiState(
     val tracks: List<Track> = emptyList(),
-    val playlists: List<Playlist> = emptyList(),
+    val filteredTracks: List<Track> = emptyList(),
     val isLoading: Boolean = false,
-    val error: String? = null,
     val searchQuery: String = "",
-    val sortOrder: SortOrder = SortOrder.TITLE_ASC,
+    val sortOption: SortOption = SortOption.TITLE_ASC,
+    val playlists: List<Playlist> = emptyList(),
     val showAddToPlaylistDialog: Boolean = false,
-    val selectedTrackForPlaylist: Track? = null
+    val selectedTrack: Track? = null,
+    val currentTrack: Track? = null,
+    val isPlaying: Boolean = false
 )
+
+enum class SortOption {
+    TITLE_ASC, TITLE_DESC, DATE_ADDED, DURATION
+}
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
-    private val playlistRepository: PlaylistRepository
+    private val playlistRepository: PlaylistRepository,
+    private val musicController: MusicController
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
@@ -38,6 +42,35 @@ class LibraryViewModel @Inject constructor(
     init {
         loadTracks()
         loadPlaylists()
+        observeMusicController()
+    }
+
+    private fun observeMusicController() {
+        viewModelScope.launch {
+            musicController.playerState.collect { playerState ->
+                _uiState.update {
+                    it.copy(
+                        currentTrack = playerState.currentTrack,
+                        isPlaying = playerState.isPlaying
+                    )
+                }
+            }
+        }
+    }
+
+    private fun loadTracks() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val tracks = musicRepository.getAllTracks()
+            _uiState.update {
+                it.copy(
+                    tracks = tracks,
+                    filteredTracks = tracks,
+                    isLoading = false
+                )
+            }
+            applyFiltersAndSort()
+        }
     }
 
     private fun loadPlaylists() {
@@ -48,54 +81,44 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun loadTracks() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-            try {
-                val tracks = musicRepository.getAllTracks()
-                _uiState.update {
-                    it.copy(
-                        tracks = sortTracks(tracks, it.sortOrder),
-                        isLoading = false
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        error = "Failed to load tracks: ${e.message}",
-                        isLoading = false
-                    )
-                }
-            }
-        }
-    }
-
     fun onSearchQueryChange(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
-        viewModelScope.launch {
-            musicRepository.searchTracks(query)
-                .collect { tracks ->
-                    _uiState.update { state ->
-                        state.copy(tracks = sortTracks(tracks, state.sortOrder))
-                    }
-                }
-        }
+        applyFiltersAndSort()
     }
 
-    fun onSortOrderChange(sortOrder: SortOrder) {
-        _uiState.update { state ->
-            state.copy(
-                sortOrder = sortOrder,
-                tracks = sortTracks(state.tracks, sortOrder)
-            )
+    fun onSortOptionChange(option: SortOption) {
+        _uiState.update { it.copy(sortOption = option) }
+        applyFiltersAndSort()
+    }
+
+    private fun applyFiltersAndSort() {
+        val currentState = _uiState.value
+        var filtered = currentState.tracks
+
+        // Filtrer par recherche
+        if (currentState.searchQuery.isNotBlank()) {
+            filtered = filtered.filter {
+                it.title.contains(currentState.searchQuery, ignoreCase = true) ||
+                        it.artist.contains(currentState.searchQuery, ignoreCase = true)
+            }
         }
+
+        // Trier
+        filtered = when (currentState.sortOption) {
+            SortOption.TITLE_ASC -> filtered.sortedBy { it.title }
+            SortOption.TITLE_DESC -> filtered.sortedByDescending { it.title }
+            SortOption.DATE_ADDED -> filtered.sortedByDescending { it.dateAdded }
+            SortOption.DURATION -> filtered.sortedByDescending { it.duration }
+        }
+
+        _uiState.update { it.copy(filteredTracks = filtered) }
     }
 
     fun showAddToPlaylistDialog(track: Track) {
         _uiState.update {
             it.copy(
                 showAddToPlaylistDialog = true,
-                selectedTrackForPlaylist = track
+                selectedTrack = track
             )
         }
     }
@@ -104,25 +127,31 @@ class LibraryViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 showAddToPlaylistDialog = false,
-                selectedTrackForPlaylist = null
+                selectedTrack = null
             )
         }
     }
 
-    fun addTrackToPlaylist(playlistId: Long) {
+    fun addToPlaylist(playlistId: Long) {
+        val track = _uiState.value.selectedTrack ?: return
+
         viewModelScope.launch {
-            _uiState.value.selectedTrackForPlaylist?.let { track ->
+            try {
                 playlistRepository.addTrackToPlaylist(playlistId, track.id)
+                android.util.Log.d("LibraryViewModel", "Added '${track.title}' to playlist $playlistId")
+            } catch (e: Exception) {
+                android.util.Log.e("LibraryViewModel", "Error adding to playlist", e)
             }
         }
+
+        hideAddToPlaylistDialog()
     }
 
-    private fun sortTracks(tracks: List<Track>, sortOrder: SortOrder): List<Track> {
-        return when (sortOrder) {
-            SortOrder.TITLE_ASC -> tracks.sortedBy { it.title.lowercase() }
-            SortOrder.TITLE_DESC -> tracks.sortedByDescending { it.title.lowercase() }
-            SortOrder.DATE_ADDED_DESC -> tracks.sortedByDescending { it.dateAdded }
-            SortOrder.DURATION_ASC -> tracks.sortedBy { it.duration }
-        }
+    fun onPlayPauseClick() {
+        musicController.playPause()
+    }
+
+    fun onNextClick() {
+        musicController.skipToNext()
     }
 }

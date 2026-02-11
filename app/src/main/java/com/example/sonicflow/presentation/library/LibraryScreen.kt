@@ -1,7 +1,5 @@
 package com.example.sonicflow.presentation.library
 
-import android.Manifest
-import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +15,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.example.sonicflow.domain.model.Playlist
 import com.example.sonicflow.domain.model.Track
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -24,25 +23,17 @@ import com.google.accompanist.permissions.rememberMultiplePermissionsState
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun LibraryScreen(
-    onTrackClick: (Track) -> Unit,
-    onNavigateToPlaylists: () -> Unit = {},
+    onTrackClick: (Long) -> Unit,
+    onPlaylistsClick: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var showSortMenu by remember { mutableStateOf(false) }
 
-    // Permissions
-    val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        listOf(Manifest.permission.READ_MEDIA_AUDIO)
-    } else {
-        listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
-
-    val permissionsState = rememberMultiplePermissionsState(permissions) { granted ->
-        if (granted.values.all { it }) {
-            viewModel.loadTracks()
-        }
-    }
+    val permissionsState = rememberMultiplePermissionsState(
+        permissions = listOf(
+            android.Manifest.permission.READ_MEDIA_AUDIO
+        )
+    )
 
     LaunchedEffect(Unit) {
         if (!permissionsState.allPermissionsGranted) {
@@ -53,49 +44,30 @@ fun LibraryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Library") },
+                title = { Text("My Music") },
                 actions = {
-                    IconButton(onClick = onNavigateToPlaylists) {
+                    IconButton(onClick = onPlaylistsClick) {
                         Icon(Icons.Default.PlaylistPlay, "Playlists")
-                    }
-                    IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.Default.Sort, "Sort")
-                    }
-                    DropdownMenu(
-                        expanded = showSortMenu,
-                        onDismissRequest = { showSortMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Title A-Z") },
-                            onClick = {
-                                viewModel.onSortOrderChange(SortOrder.TITLE_ASC)
-                                showSortMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Title Z-A") },
-                            onClick = {
-                                viewModel.onSortOrderChange(SortOrder.TITLE_DESC)
-                                showSortMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Recently Added") },
-                            onClick = {
-                                viewModel.onSortOrderChange(SortOrder.DATE_ADDED_DESC)
-                                showSortMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Duration") },
-                            onClick = {
-                                viewModel.onSortOrderChange(SortOrder.DURATION_ASC)
-                                showSortMenu = false
-                            }
-                        )
                     }
                 }
             )
+        },
+        bottomBar = {
+            // Mini Player - s'affiche seulement s'il y a une chanson en cours
+            if (uiState.currentTrack != null) {
+                MiniPlayer(
+                    currentTrack = uiState.currentTrack,
+                    isPlaying = uiState.isPlaying,
+                    onPlayPauseClick = { viewModel.onPlayPauseClick() },
+                    onNextClick = { viewModel.onNextClick() },
+                    onPlayerClick = {
+                        uiState.currentTrack?.let { track ->
+                            onTrackClick(track.id)
+                        }
+                    },
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
         }
     ) { paddingValues ->
         Column(
@@ -110,13 +82,53 @@ fun LibraryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                placeholder = { Text("Search songs, artists...") },
-                leadingIcon = { Icon(Icons.Default.Search, "Search") },
+                placeholder = { Text("Search songs...") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
                 singleLine = true
             )
 
+            // Sort Options
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SortChip(
+                    label = "A-Z",
+                    selected = uiState.sortOption == SortOption.TITLE_ASC,
+                    onClick = { viewModel.onSortOptionChange(SortOption.TITLE_ASC) }
+                )
+                SortChip(
+                    label = "Z-A",
+                    selected = uiState.sortOption == SortOption.TITLE_DESC,
+                    onClick = { viewModel.onSortOptionChange(SortOption.TITLE_DESC) }
+                )
+                SortChip(
+                    label = "Date",
+                    selected = uiState.sortOption == SortOption.DATE_ADDED,
+                    onClick = { viewModel.onSortOptionChange(SortOption.DATE_ADDED) }
+                )
+                SortChip(
+                    label = "Duration",
+                    selected = uiState.sortOption == SortOption.DURATION,
+                    onClick = { viewModel.onSortOptionChange(SortOption.DURATION) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Tracks List
             when {
-                !permissionsState.allPermissionsGranted -> {
+                uiState.isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                uiState.filteredTracks.isEmpty() -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -129,56 +141,19 @@ fun LibraryScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text("Storage permission required")
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(onClick = {
-                                permissionsState.launchMultiplePermissionRequest()
-                            }) {
-                                Text("Grant Permission")
-                            }
+                            Text("No songs found")
                         }
                     }
                 }
-
-                uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                uiState.error != null -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(uiState.error ?: "Unknown error")
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = { viewModel.loadTracks() }) {
-                                Text("Retry")
-                            }
-                        }
-                    }
-                }
-
-                uiState.tracks.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("No music found")
-                    }
-                }
-
                 else -> {
-                    LazyColumn {
-                        items(uiState.tracks) { track ->
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = if (uiState.currentTrack != null) 80.dp else 0.dp)
+                    ) {
+                        items(uiState.filteredTracks) { track ->
                             TrackItemWithMenu(
                                 track = track,
-                                onClick = { onTrackClick(track) },
+                                onClick = { onTrackClick(track.id) },
                                 onAddToPlaylist = { viewModel.showAddToPlaylistDialog(track) }
                             )
                         }
@@ -189,67 +164,31 @@ fun LibraryScreen(
     }
 
     // Dialogue d'ajout à une playlist
-    if (uiState.showAddToPlaylistDialog) {
+    if (uiState.showAddToPlaylistDialog && uiState.selectedTrack != null) {
         AddToPlaylistDialog(
             playlists = uiState.playlists,
-            onDismiss = { viewModel.hideAddToPlaylistDialog() },
             onPlaylistSelected = { playlistId ->
-                viewModel.addTrackToPlaylist(playlistId)
+                viewModel.addToPlaylist(playlistId)
             },
-            onCreateNewPlaylist = {
-                // Navigate to playlists screen to create new one
-                viewModel.hideAddToPlaylistDialog()
-                onNavigateToPlaylists()
-            }
+            onDismiss = { viewModel.hideAddToPlaylistDialog() }
         )
     }
 }
 
 @Composable
-fun TrackItem(
-    track: Track,
+fun SortChip(
+    label: String,
+    selected: Boolean,
     onClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AsyncImage(
-            model = track.albumArtUri,
-            contentDescription = "Album art",
-            modifier = Modifier.size(56.dp),
-            contentScale = ContentScale.Crop
-        )
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${track.artist} • ${track.album}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        Text(
-            text = formatDuration(track.duration),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) }
+    )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackItemWithMenu(
     track: Track,
@@ -258,70 +197,131 @@ fun TrackItemWithMenu(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AsyncImage(
-            model = track.albumArtUri,
-            contentDescription = "Album art",
-            modifier = Modifier.size(56.dp),
-            contentScale = ContentScale.Crop
-        )
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        headlineContent = {
             Text(
                 text = track.title,
-                style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        },
+        supportingContent = {
             Text(
-                text = "${track.artist} • ${track.album}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = "${track.artist} • ${formatDuration(track.duration)}",
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-        }
-
-        Text(
-            text = formatDuration(track.duration),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Box {
-            IconButton(onClick = { showMenu = true }) {
-                Icon(Icons.Default.MoreVert, "More options")
-            }
-
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
+        },
+        leadingContent = {
+            Card(
+                modifier = Modifier.size(56.dp),
+                shape = MaterialTheme.shapes.small
             ) {
-                DropdownMenuItem(
-                    text = { Text("Add to playlist") },
-                    onClick = {
-                        showMenu = false
-                        onAddToPlaylist()
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.PlaylistAdd, null)
-                    }
+                AsyncImage(
+                    model = track.albumArtUri,
+                    contentDescription = "Album art",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
             }
+        },
+        trailingContent = {
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, "More")
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Add to playlist") },
+                        onClick = {
+                            showMenu = false
+                            onAddToPlaylist()
+                        },
+                        leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) }
+                    )
+                }
+            }
         }
-    }
+    )
+}
+
+@Composable
+fun AddToPlaylistDialog(
+    playlists: List<Playlist>,
+    onPlaylistSelected: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add to Playlist") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+            ) {
+                if (playlists.isEmpty()) {
+                    Text("No playlists yet. Create one first!")
+                } else {
+                    Text("Select a playlist:")
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        playlists.forEach { playlist ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        onPlaylistSelected(playlist.id)
+                                        onDismiss()
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.PlaylistPlay,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = playlist.name,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            text = "${playlist.trackCount} songs",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 private fun formatDuration(durationMs: Long): String {
-    val seconds = (durationMs / 1000) % 60
-    val minutes = (durationMs / (1000 * 60)) % 60
+    val totalSeconds = (durationMs / 1000).coerceAtLeast(0)
+    val seconds = totalSeconds % 60
+    val minutes = (totalSeconds / 60) % 60
     return String.format("%d:%02d", minutes, seconds)
 }

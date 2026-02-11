@@ -1,5 +1,6 @@
 package com.example.sonicflow.presentation.player
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -29,6 +30,11 @@ fun PlayerScreen(
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.Default.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.showAddToPlaylistDialog() }) {
+                        Icon(Icons.Default.PlaylistAdd, "Add to Playlist")
                     }
                 }
             )
@@ -104,14 +110,9 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Waveform
-                    if (uiState.waveformAmplitudes.isNotEmpty()) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            )
-                        ) {
+                    // Waveform avec progression
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (uiState.waveformAmplitudes.isNotEmpty()) {
                             WaveformView(
                                 amplitudes = uiState.waveformAmplitudes,
                                 progress = if (uiState.duration > 0) {
@@ -119,7 +120,7 @@ fun PlayerScreen(
                                 } else {
                                     0f
                                 },
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 onSeek = { progress ->
                                     val duration = uiState.duration
                                     if (duration > 0) {
@@ -128,41 +129,32 @@ fun PlayerScreen(
                                     }
                                 }
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (uiState.isLoadingWaveform) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                }
+                            }
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
 
-                    // Seek Bar
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        val duration = uiState.duration.coerceAtLeast(1L)
-                        val position = uiState.currentPosition.coerceIn(0L, duration)
-
-                        var tempSliderPosition by remember { mutableStateOf<Float?>(null) }
-
-                        Slider(
-                            value = tempSliderPosition ?: position.toFloat(),
-                            onValueChange = { newValue ->
-                                tempSliderPosition = newValue
-                            },
-                            onValueChangeFinished = {
-                                tempSliderPosition?.let { viewModel.onSeekTo(it.toLong()) }
-                                tempSliderPosition = null
-                            },
-                            valueRange = 0f..duration.toFloat(),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = formatDuration(tempSliderPosition?.toLong() ?: position),
+                                text = formatDuration(uiState.currentPosition),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = formatDuration(duration),
+                                text = formatDuration(uiState.duration),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -177,7 +169,6 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Previous Button
                         IconButton(
                             onClick = { viewModel.onPreviousClick() },
                             modifier = Modifier.size(72.dp)
@@ -190,7 +181,6 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Play/Pause Button
                         FilledIconButton(
                             onClick = { viewModel.onPlayPauseClick() },
                             modifier = Modifier.size(80.dp)
@@ -206,7 +196,6 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Next Button
                         IconButton(
                             onClick = { viewModel.onNextClick() },
                             modifier = Modifier.size(72.dp)
@@ -242,6 +231,72 @@ fun PlayerScreen(
                 }
             }
         }
+    }
+
+    // Dialogue d'ajout à une playlist
+    if (uiState.showAddToPlaylistDialog && uiState.currentTrack != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.hideAddToPlaylistDialog() },
+            title = { Text("Add to Playlist") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                ) {
+                    if (uiState.playlists.isEmpty()) {
+                        Text("No playlists yet. Create one in the Library!")
+                    } else {
+                        Text("Select a playlist:")
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            uiState.playlists.forEach { playlist ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable {
+                                            viewModel.addToPlaylist(playlist.id)
+                                            viewModel.hideAddToPlaylistDialog()
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.PlaylistPlay,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = playlist.name,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Text(
+                                                text = "${playlist.trackCount} songs",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.hideAddToPlaylistDialog() }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

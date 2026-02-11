@@ -7,6 +7,6 @@ import androidx.room.PrimaryKey
 data class WaveformDataEntity(
     @PrimaryKey
     val trackId: Long,
-    val amplitudes: String,
-    val generatedAt: Long = System.currentTimeMillis()
+    val amplitudesData: String, // Liste d'amplitudes séparées par des virgules
+    val createdAt: Long = System.currentTimeMillis()
 )

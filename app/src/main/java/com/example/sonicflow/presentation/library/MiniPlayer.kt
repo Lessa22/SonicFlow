@@ -3,11 +3,9 @@ package com.example.sonicflow.presentation.library
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -18,45 +16,55 @@ import com.example.sonicflow.domain.model.Track
 
 @Composable
 fun MiniPlayer(
-    track: Track?,
+    currentTrack: Track?,
     isPlaying: Boolean,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
-    onClick: () -> Unit,
+    onPlayerClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (track == null) return
+    if (currentTrack == null) return
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .height(72.dp)
+            .clickable { onPlayerClick() },
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = track.albumArtUri,
-                contentDescription = "Album art",
-                modifier = Modifier.size(48.dp),
-                contentScale = ContentScale.Crop
-            )
+            // Album Art
+            Card(
+                modifier = Modifier.size(56.dp),
+                shape = MaterialTheme.shapes.small
+            ) {
+                AsyncImage(
+                    model = currentTrack.albumArtUri,
+                    contentDescription = "Album art",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            // Track Info
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(
-                    text = track.title,
+                    text = currentTrack.title,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = track.artist,
+                    text = currentTrack.artist,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -64,15 +72,32 @@ fun MiniPlayer(
                 )
             }
 
-            IconButton(onClick = onPlayPauseClick) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play"
-                )
-            }
+            // Controls
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onPlayPauseClick,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
 
-            IconButton(onClick = onNextClick) {
-                Icon(Icons.Default.SkipNext, "Next")
+                IconButton(
+                    onClick = onNextClick,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = "Next",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }

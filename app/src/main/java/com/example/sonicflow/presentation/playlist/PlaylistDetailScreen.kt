@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.sonicflow.domain.model.Track
-import com.example.sonicflow.presentation.library.TrackItem
+import com.example.sonicflow.presentation.components.TrackItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

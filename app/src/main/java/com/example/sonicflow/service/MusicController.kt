@@ -1,177 +1,177 @@
 package com.example.sonicflow.service
 
-import android.content.ComponentName
 import android.content.Context
-import androidx.core.net.toUri
+import android.content.Intent
+import android.os.Build
+import android.util.Log
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.sonicflow.domain.model.Track
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class PlayerState(
+    val currentTrack: Track? = null,
+    val isPlaying: Boolean = false,
+    val currentPosition: Long = 0L,
+    val duration: Long = 0L
+)
+
 @Singleton
 class MusicController @Inject constructor(
+    private val player: ExoPlayer,
     @ApplicationContext private val context: Context
 ) {
-
-    private var controllerFuture: ListenableFuture<MediaController>? = null
-    private var mediaController: MediaController? = null
-
     private val _playerState = MutableStateFlow(PlayerState())
     val playerState: StateFlow<PlayerState> = _playerState.asStateFlow()
 
+    private val scope = CoroutineScope(Dispatchers.Main)
+    private var progressJob: Job? = null
+
+    private var currentTracks: List<Track> = emptyList()
+    private var currentIndex: Int = 0
+
     init {
-        initializeController()
-    }
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                _playerState.update { it.copy(isPlaying = isPlaying) }
 
-    private fun initializeController() {
-        val sessionToken = SessionToken(
-            context,
-            ComponentName(context, MusicService::class.java)
-        )
+                if (isPlaying) {
+                    startProgressUpdate()
+                } else {
+                    stopProgressUpdate()
+                }
 
-        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-        controllerFuture?.addListener({
-            mediaController = controllerFuture?.get()
-            mediaController?.addListener(playerListener)
-            updatePlayerState()
-        }, MoreExecutors.directExecutor())
-    }
-
-    private val playerListener = object : Player.Listener {
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            updatePlayerState()
-        }
-
-        override fun onPlaybackStateChanged(playbackState: Int) {
-            updatePlayerState()
-        }
-
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            updatePlayerState()
-        }
-
-        override fun onPositionDiscontinuity(
-            oldPosition: Player.PositionInfo,
-            newPosition: Player.PositionInfo,
-            reason: Int
-        ) {
-            updatePlayerState()
-        }
-    }
-
-    private fun updatePlayerState() {
-        mediaController?.let { controller ->
-            val currentPos = if (controller.duration > 0) {
-                controller.currentPosition.coerceIn(0L, controller.duration)
-            } else {
-                0L
+                Log.d("MusicController", "onIsPlayingChanged: $isPlaying")
             }
 
-            _playerState.value = PlayerState(
-                isPlaying = controller.isPlaying,
-                currentPosition = currentPos,
-                duration = controller.duration.coerceAtLeast(0L),
-                currentTrackIndex = controller.currentMediaItemIndex
-            )
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                when (playbackState) {
+                    Player.STATE_READY -> {
+                        val duration = player.duration.coerceAtLeast(0L)
+                        _playerState.update { it.copy(duration = duration) }
+                        Log.d("MusicController", "STATE_READY - Duration: $duration")
+                    }
+                    Player.STATE_ENDED -> {
+                        skipToNext()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun startProgressUpdate() {
+        stopProgressUpdate()
+        progressJob = scope.launch {
+            while (true) {
+                val currentPos = player.currentPosition.coerceAtLeast(0L)
+                val duration = player.duration.coerceAtLeast(0L)
+
+                _playerState.update {
+                    it.copy(
+                        currentPosition = currentPos,
+                        duration = duration,
+                        isPlaying = player.isPlaying
+                    )
+                }
+
+                delay(100) // Mise à jour toutes les 100ms
+            }
         }
     }
 
-    fun playTrack(track: Track) {
-        val mediaItem = MediaItem.Builder()
-            .setUri(track.path.toUri())
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .setAlbumTitle(track.album)
-                    .setArtworkUri(track.albumArtUri?.toUri())
-                    .build()
-            )
-            .build()
-
-        mediaController?.apply {
-            setMediaItem(mediaItem)
-            prepare()
-            play()
-        }
+    private fun stopProgressUpdate() {
+        progressJob?.cancel()
+        progressJob = null
     }
 
     fun playTracks(tracks: List<Track>, startIndex: Int = 0) {
-        val mediaItems = tracks.map { track ->
-            MediaItem.Builder()
-                .setUri(track.path.toUri())
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .setAlbumTitle(track.album)
-                        .setArtworkUri(track.albumArtUri?.toUri())
-                        .build()
-                )
-                .build()
+        currentTracks = tracks
+        currentIndex = startIndex
+
+        val track = tracks.getOrNull(startIndex) ?: return
+
+        // Démarrer le service pour la notification
+        startMusicService()
+
+        val mediaItems = tracks.map { MediaItem.fromUri(it.path) }
+        player.setMediaItems(mediaItems, startIndex, 0)
+        player.prepare()
+        player.playWhenReady = true
+
+        _playerState.update {
+            it.copy(
+                currentTrack = track,
+                isPlaying = true
+            )
         }
 
-        // Attendre que le controller soit prêt
-        if (mediaController == null) {
-            android.util.Log.w("MusicController", "MediaController not ready yet, waiting...")
-            controllerFuture?.addListener({
-                mediaController?.apply {
-                    setMediaItems(mediaItems, startIndex, 0)
-                    prepare()
-                    play()
-                }
-            }, MoreExecutors.directExecutor())
+        Log.d("MusicController", "Playing: ${track.title}")
+    }
+
+    private fun startMusicService() {
+        val serviceIntent = Intent(context, MusicService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(serviceIntent)
         } else {
-            mediaController?.apply {
-                setMediaItems(mediaItems, startIndex, 0)
-                prepare()
-                play()
-            }
+            context.startService(serviceIntent)
         }
     }
 
     fun playPause() {
-        mediaController?.let { controller ->
-            if (controller.isPlaying) {
-                controller.pause()
-            } else {
-                controller.play()
-            }
+        if (player.isPlaying) {
+            player.pause()
+        } else {
+            player.play()
         }
     }
 
     fun seekTo(position: Long) {
-        mediaController?.seekTo(position)
+        player.seekTo(position)
+        _playerState.update { it.copy(currentPosition = position) }
+        Log.d("MusicController", "Seek to: $position")
     }
 
     fun skipToNext() {
-        mediaController?.seekToNext()
+        if (currentIndex < currentTracks.size - 1) {
+            currentIndex++
+            player.seekToNext()
+            _playerState.update {
+                it.copy(currentTrack = currentTracks[currentIndex])
+            }
+        } else {
+            // Retour au début
+            currentIndex = 0
+            player.seekTo(0, 0)
+            _playerState.update {
+                it.copy(currentTrack = currentTracks[currentIndex])
+            }
+        }
     }
 
     fun skipToPrevious() {
-        mediaController?.seekToPrevious()
+        if (currentIndex > 0) {
+            currentIndex--
+            player.seekToPrevious()
+            _playerState.update {
+                it.copy(currentTrack = currentTracks[currentIndex])
+            }
+        }
     }
 
     fun release() {
-        mediaController?.removeListener(playerListener)
-        MediaController.releaseFuture(controllerFuture ?: return)
-        mediaController = null
+        stopProgressUpdate()
+        player.release()
     }
 }
-
-data class PlayerState(
-    val isPlaying: Boolean = false,
-    val currentPosition: Long = 0L,
-    val duration: Long = 0L,
-    val currentTrackIndex: Int = -1
-)

@@ -3,8 +3,11 @@ package com.example.sonicflow.presentation.player
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.sonicflow.domain.model.Playlist
 import com.example.sonicflow.domain.model.Track
 import com.example.sonicflow.domain.repository.MusicRepository
+import com.example.sonicflow.domain.repository.PlaylistRepository
+import com.example.sonicflow.domain.repository.WaveformRepository
 import com.example.sonicflow.service.MusicController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -17,23 +20,27 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class PlayerUiState(
-    val currentTrack: Track? = null,
-    val isPlaying: Boolean = false,
-    val currentPosition: Long = 0L,
-    val duration: Long = 0L,
     val isLoading: Boolean = false,
+    val isPlaying: Boolean = false,
+    val currentTrack: Track? = null,
+    val duration: Long = 0L,
+    val currentPosition: Long = 0L,
     val waveformAmplitudes: List<Float> = emptyList(),
-    val isLoadingWaveform: Boolean = false
+    val isLoadingWaveform: Boolean = false,
+    val showAddToPlaylistDialog: Boolean = false,
+    val playlists: List<Playlist> = emptyList()
 )
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val musicRepository: MusicRepository,
-    private val musicController: MusicController
+    private val musicController: MusicController,
+    private val playlistRepository: PlaylistRepository,
+    private val waveformRepository: WaveformRepository
 ) : ViewModel() {
 
-    private val trackId: Long = savedStateHandle.get<String>("trackId")?.toLongOrNull() ?: 0L
+    private val trackId: Long = savedStateHandle.get<Long>("trackId") ?: 0L
 
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -44,6 +51,7 @@ class PlayerViewModel @Inject constructor(
         loadTrack()
         observePlayerState()
         startProgressUpdate()
+        loadPlaylists()
     }
 
     private fun loadTrack() {
@@ -61,11 +69,44 @@ class PlayerViewModel @Inject constructor(
                             isLoading = false
                         )
                     }
-                    // Play the track
-                    musicController.playTracks(tracks, trackIndex)
+
+                    // Ne jouer QUE si ce n'est pas déjà la chanson en cours
+                    val currentlyPlaying = musicController.playerState.value.currentTrack
+                    if (currentlyPlaying == null || currentlyPlaying.id != track.id) {
+                        musicController.playTracks(tracks, trackIndex)
+                    }
+
+                    // Load waveform
+                    loadWaveform(track)
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    private fun loadWaveform(track: Track) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingWaveform = true) }
+            try {
+                val amplitudes = waveformRepository.getWaveformData(track.id, track.path)
+                _uiState.update {
+                    it.copy(
+                        waveformAmplitudes = amplitudes,
+                        isLoadingWaveform = false
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("PlayerViewModel", "Error loading waveform", e)
+                _uiState.update { it.copy(isLoadingWaveform = false) }
+            }
+        }
+    }
+
+    private fun loadPlaylists() {
+        viewModelScope.launch {
+            playlistRepository.getAllPlaylists().collect { playlists ->
+                _uiState.update { it.copy(playlists = playlists) }
             }
         }
     }
@@ -87,13 +128,9 @@ class PlayerViewModel @Inject constructor(
         progressUpdateJob?.cancel()
         progressUpdateJob = viewModelScope.launch {
             while (true) {
-                delay(200) // 200ms pour un mouvement plus fluide
+                delay(100) // Mise à jour toutes les 100ms pour une waveform fluide
                 val playerState = musicController.playerState.value
 
-                // Log pour debug
-                android.util.Log.d("PlayerViewModel", "Position: ${playerState.currentPosition}, Duration: ${playerState.duration}, IsPlaying: ${playerState.isPlaying}")
-
-                // Toujours mettre à jour, même si pas en lecture
                 _uiState.update {
                     it.copy(
                         currentPosition = playerState.currentPosition.coerceAtLeast(0L),
@@ -103,6 +140,29 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun showAddToPlaylistDialog() {
+        _uiState.update { it.copy(showAddToPlaylistDialog = true) }
+    }
+
+    fun hideAddToPlaylistDialog() {
+        _uiState.update { it.copy(showAddToPlaylistDialog = false) }
+    }
+
+    fun addToPlaylist(playlistId: Long) {
+        val track = _uiState.value.currentTrack ?: return
+
+        viewModelScope.launch {
+            try {
+                playlistRepository.addTrackToPlaylist(playlistId, track.id)
+                android.util.Log.d("PlayerViewModel", "Added '${track.title}' to playlist $playlistId")
+            } catch (e: Exception) {
+                android.util.Log.e("PlayerViewModel", "Error adding to playlist", e)
+            }
+        }
+
+        _uiState.update { it.copy(showAddToPlaylistDialog = false) }
     }
 
     fun onPlayPauseClick() {

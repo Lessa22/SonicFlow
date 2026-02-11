@@ -12,9 +12,9 @@ interface WaveformDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWaveformData(waveformData: WaveformDataEntity)
 
-    @Query("DELETE FROM waveform_data WHERE trackId = :trackId")
-    suspend fun deleteWaveformData(trackId: Long)
+    @Delete
+    suspend fun deleteWaveformData(waveformData: WaveformDataEntity)
 
     @Query("DELETE FROM waveform_data")
-    suspend fun clearAllWaveformData()
+    suspend fun deleteAllWaveformData()
 }

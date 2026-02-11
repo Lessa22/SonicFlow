@@ -1,26 +1,23 @@
 package com.example.sonicflow.data
 
-import android.content.Context
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlin.math.abs
 
-@Singleton
-class WaveformGenerator @Inject constructor(
-    @ApplicationContext private val context: Context
-) {
+object WaveformGenerator {
 
-    suspend fun generateWaveform(audioPath: String, samplesCount: Int = 100): List<Float> = withContext(Dispatchers.IO) {
+    private const val SAMPLES_COUNT = 100 // Nombre de barres dans la waveform
+
+    suspend fun generateWaveform(audioPath: String): List<Float> = withContext(Dispatchers.IO) {
+        val extractor = MediaExtractor()
+
         try {
-            val extractor = MediaExtractor()
             extractor.setDataSource(audioPath)
 
+            // Trouver la piste audio
             var audioTrackIndex = -1
             for (i in 0 until extractor.trackCount) {
                 val format = extractor.getTrackFormat(i)
@@ -32,66 +29,66 @@ class WaveformGenerator @Inject constructor(
             }
 
             if (audioTrackIndex == -1) {
-                return@withContext List(samplesCount) { 0.5f }
+                return@withContext emptyList()
             }
 
             extractor.selectTrack(audioTrackIndex)
 
-            val buffer = ByteBuffer.allocate(1024 * 16)
             val amplitudes = mutableListOf<Float>()
+            val buffer = ByteBuffer.allocate(1024 * 16)
+            val samplesList = mutableListOf<Short>()
 
-            var maxAmplitude = 0f
-
+            // Extraire tous les échantillons
             while (extractor.readSampleData(buffer, 0) >= 0) {
                 buffer.rewind()
 
-                var sum = 0f
-                var count = 0
-
-                while (buffer.hasRemaining()) {
-                    val sample = buffer.short.toFloat()
-                    sum += abs(sample)
-                    count++
+                // Lire les échantillons (16 bits = Short)
+                while (buffer.remaining() >= 2) {
+                    val sample = buffer.short
+                    samplesList.add(sample)
                 }
 
-                if (count > 0) {
-                    val avgAmplitude = sum / count
-                    amplitudes.add(avgAmplitude)
-                    if (avgAmplitude > maxAmplitude) {
-                        maxAmplitude = avgAmplitude
-                    }
-                }
-
-                extractor.advance()
                 buffer.clear()
+                extractor.advance()
             }
 
-            extractor.release()
-
-            // Normaliser et réduire au nombre d'échantillons souhaité
-            val normalizedAmplitudes = if (maxAmplitude > 0) {
-                amplitudes.map { it / maxAmplitude }
-            } else {
-                amplitudes.map { 0.5f }
+            if (samplesList.isEmpty()) {
+                return@withContext List(SAMPLES_COUNT) { 0.5f }
             }
 
-            // Réduire le nombre d'échantillons
-            val step = normalizedAmplitudes.size / samplesCount
-            if (step < 1) {
-                return@withContext normalizedAmplitudes.take(samplesCount)
-            }
+            // Diviser en segments et calculer l'amplitude moyenne
+            val samplesPerSegment = samplesList.size / SAMPLES_COUNT
 
-            List(samplesCount) { i ->
-                val index = i * step
-                if (index < normalizedAmplitudes.size) {
-                    normalizedAmplitudes[index]
-                } else {
-                    0.5f
+            for (i in 0 until SAMPLES_COUNT) {
+                val start = i * samplesPerSegment
+                val end = minOf(start + samplesPerSegment, samplesList.size)
+
+                if (start >= samplesList.size) break
+
+                // Calculer l'amplitude moyenne pour ce segment
+                var sum = 0f
+                for (j in start until end) {
+                    sum += abs(samplesList[j].toFloat())
                 }
+
+                val average = sum / (end - start)
+                val normalized = (average / Short.MAX_VALUE).coerceIn(0.1f, 1f)
+                amplitudes.add(normalized)
             }
+
+            // Remplir le reste si nécessaire
+            while (amplitudes.size < SAMPLES_COUNT) {
+                amplitudes.add(0.3f)
+            }
+
+            return@withContext amplitudes
+
         } catch (e: Exception) {
             android.util.Log.e("WaveformGenerator", "Error generating waveform", e)
-            List(samplesCount) { 0.5f }
+            // Retourner une waveform par défaut en cas d'erreur
+            return@withContext List(SAMPLES_COUNT) { 0.5f }
+        } finally {
+            extractor.release()
         }
     }
 }

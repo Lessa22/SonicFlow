@@ -4,37 +4,42 @@ import com.example.sonicflow.data.WaveformGenerator
 import com.example.sonicflow.data.local.database.WaveformDao
 import com.example.sonicflow.data.local.entities.WaveformDataEntity
 import com.example.sonicflow.domain.repository.WaveformRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
 class WaveformRepositoryImpl @Inject constructor(
-    private val waveformDao: WaveformDao,
-    private val waveformGenerator: WaveformGenerator
+    private val waveformDao: WaveformDao
 ) : WaveformRepository {
 
-    override suspend fun getWaveform(trackId: Long, trackPath: String): List<Float> {
-        // Vérifier si déjà en cache
+    override suspend fun getWaveformData(trackId: Long, audioPath: String): List<Float> = withContext(Dispatchers.IO) {
+        // Vérifier si on a déjà la waveform en cache
         val cached = waveformDao.getWaveformData(trackId)
+
         if (cached != null) {
-            return cached.amplitudes.split(",").map { it.toFloatOrNull() ?: 0.5f }
+            return@withContext parseAmplitudes(cached.amplitudesData)
         }
 
-        // Générer la waveform
-        val amplitudes = waveformGenerator.generateWaveform(trackPath)
+        // Sinon, générer la waveform
+        val amplitudes = WaveformGenerator.generateWaveform(audioPath)
 
         // Sauvegarder en cache
         waveformDao.insertWaveformData(
             WaveformDataEntity(
                 trackId = trackId,
-                amplitudes = amplitudes.joinToString(",")
+                amplitudesData = amplitudes.joinToString(",")
             )
         )
 
-        return amplitudes
+
+        return@withContext amplitudes
     }
 
-    override suspend fun clearCache() {
-        waveformDao.clearAllWaveformData()
+    private fun parseAmplitudes(data: String): List<Float> {
+        return try {
+            data.split(",").map { it.toFloat() }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }
