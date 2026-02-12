@@ -9,8 +9,6 @@ import androidx.media3.common.util.UnstableApi
 class MediaControlReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        // Les actions sont gérées automatiquement par MediaSession
-        // Ce receiver n'est qu'un placeholder pour les intent-filters
-        // MediaSession intercepte directement les commandes via SessionPlayer
+
     }
 }
