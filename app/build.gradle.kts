@@ -90,6 +90,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.2.0")
     implementation("androidx.media3:media3-ui:1.2.0")
 
+    implementation("androidx.media:media:1.7.0")
     // Coil (Image Loading)
     implementation("io.coil-kt:coil-compose:2.5.0")
 
@@ -108,4 +109,6 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+
 }

@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+
+
+
     <application
         android:name=".SonicFlowApp"
         android:allowBackup="true"
@@ -42,6 +45,18 @@
                 <action android:name="androidx.media3.session.MediaSessionService"/>
             </intent-filter>
         </service>
+
+
+        <receiver
+            android:name=".service.MediaControlReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="PLAY" />
+                <action android:name="PAUSE" />
+                <action android:name="NEXT" />
+                <action android:name="PREVIOUS" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

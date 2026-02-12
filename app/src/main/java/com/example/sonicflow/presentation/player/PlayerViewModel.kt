@@ -116,9 +116,17 @@ class PlayerViewModel @Inject constructor(
             musicController.playerState.collect { playerState ->
                 _uiState.update {
                     it.copy(
+                        currentTrack = playerState.currentTrack ?: it.currentTrack,
                         isPlaying = playerState.isPlaying,
                         duration = playerState.duration.coerceAtLeast(0L)
                     )
+                }
+
+                // Charger la waveform si la chanson a changé
+                playerState.currentTrack?.let { newTrack ->
+                    if (newTrack.id != _uiState.value.currentTrack?.id) {
+                        loadWaveform(newTrack)
+                    }
                 }
             }
         }

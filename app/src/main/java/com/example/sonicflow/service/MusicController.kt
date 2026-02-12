@@ -105,7 +105,21 @@ class MusicController @Inject constructor(
         // Démarrer le service pour la notification
         startMusicService()
 
-        val mediaItems = tracks.map { MediaItem.fromUri(it.path) }
+        // Créer les MediaItems avec métadonnées
+        val mediaItems = tracks.map { t ->
+            androidx.media3.common.MediaItem.Builder()
+                .setUri(t.path)
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(t.title)
+                        .setArtist(t.artist)
+                        .setAlbumTitle(t.album)
+                        .setArtworkUri(t.albumArtUri?.let { android.net.Uri.parse(it) })
+                        .build()
+                )
+                .build()
+        }
+
         player.setMediaItems(mediaItems, startIndex, 0)
         player.prepare()
         player.playWhenReady = true
