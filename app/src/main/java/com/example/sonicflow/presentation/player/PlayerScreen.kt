@@ -1,5 +1,7 @@
 package com.example.sonicflow.presentation.player
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -8,7 +10,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -22,18 +27,35 @@ fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val haptics = LocalHapticFeedback.current
+
+    // Animation pour le bouton play/pause
+    val playPauseScale by animateFloatAsState(
+        targetValue = if (uiState.isPlaying) 1f else 0.9f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "playPauseScale"
+    )
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Now Playing") },
                 navigationIcon = {
-                    IconButton(onClick = onBackClick) {
+                    IconButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onBackClick()
+                    }) {
                         Icon(Icons.Default.ArrowBack, "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.showAddToPlaylistDialog() }) {
+                    IconButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.showAddToPlaylistDialog()
+                    }) {
                         Icon(Icons.Default.PlaylistAdd, "Add to Playlist")
                     }
                 }
@@ -47,7 +69,15 @@ fun PlayerScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Loading...")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "Chargement...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         } else {
             uiState.currentTrack?.let { track ->
@@ -61,7 +91,16 @@ fun PlayerScreen(
                 ) {
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Album Art
+                    // Album Art avec animation de rotation si en lecture
+                    val rotation by animateFloatAsState(
+                        targetValue = if (uiState.isPlaying) 360f else 0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(10000, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "albumRotation"
+                    )
+
                     Card(
                         modifier = Modifier
                             .size(280.dp)
@@ -78,10 +117,12 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Track Info
+                    // Track Info avec animation
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateContentSize()  // ✨ Animation smooth
                     ) {
                         Text(
                             text = track.title,
@@ -110,34 +151,60 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Waveform avec progression
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    // Waveform avec animation et progression
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateContentSize()  // ✨ Animation smooth
+                    ) {
                         if (uiState.waveformAmplitudes.isNotEmpty()) {
-                            WaveformView(
-                                amplitudes = uiState.waveformAmplitudes,
-                                progress = if (uiState.duration > 0) {
-                                    uiState.currentPosition.toFloat() / uiState.duration.toFloat()
-                                } else {
-                                    0f
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                onSeek = { progress ->
-                                    val duration = uiState.duration
-                                    if (duration > 0) {
-                                        val position = (duration * progress).toLong()
-                                        viewModel.onSeekTo(position)
+                            // Box animée pour le waveform
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(100.dp)
+                                    .animateContentSize(
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessLow
+                                        )
+                                    )
+                            ) {
+                                WaveformView(
+                                    amplitudes = uiState.waveformAmplitudes,
+                                    progress = if (uiState.duration > 0) {
+                                        uiState.currentPosition.toFloat() / uiState.duration.toFloat()
+                                    } else {
+                                        0f
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                    onSeek = { progress ->
+                                        val duration = uiState.duration
+                                        if (duration > 0) {
+                                            val position = (duration * progress).toLong()
+                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            viewModel.onSeekTo(position)
+                                        }
                                     }
-                                }
-                            )
+                                )
+                            }
                         } else {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(60.dp),
+                                    .height(100.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (uiState.isLoadingWaveform) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            "Analyse audio...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -163,14 +230,17 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(32.dp))
 
-                    // Playback Controls
+                    // Playback Controls avec animations
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            onClick = { viewModel.onPreviousClick() },
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.onPreviousClick()
+                            },
                             modifier = Modifier.size(72.dp)
                         ) {
                             Icon(
@@ -182,8 +252,13 @@ fun PlayerScreen(
                         }
 
                         FilledIconButton(
-                            onClick = { viewModel.onPlayPauseClick() },
-                            modifier = Modifier.size(80.dp)
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.onPlayPauseClick()
+                            },
+                            modifier = Modifier
+                                .size(80.dp)
+                                .scale(playPauseScale)  // ✨ Animation scale
                         ) {
                             Icon(
                                 imageVector = if (uiState.isPlaying) {
@@ -197,7 +272,10 @@ fun PlayerScreen(
                         }
 
                         IconButton(
-                            onClick = { viewModel.onNextClick() },
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.onNextClick()
+                            },
                             modifier = Modifier.size(72.dp)
                         ) {
                             Icon(
@@ -226,7 +304,10 @@ fun PlayerScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Track not found")
+                        Text(
+                            "Aucune piste trouvée",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
                     }
                 }
             }
@@ -245,9 +326,34 @@ fun PlayerScreen(
                         .heightIn(max = 400.dp)
                 ) {
                     if (uiState.playlists.isEmpty()) {
-                        Text("No playlists yet. Create one in the Library!")
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.PlaylistAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "Aucune playlist pour le moment",
+                                style = MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Créez-en une dans la bibliothèque !",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     } else {
-                        Text("Select a playlist:")
+                        Text("Sélectionner une playlist :")
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Column(modifier = Modifier.fillMaxWidth()) {
@@ -257,6 +363,7 @@ fun PlayerScreen(
                                         .fillMaxWidth()
                                         .padding(vertical = 4.dp)
                                         .clickable {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                             viewModel.addToPlaylist(playlist.id)
                                             viewModel.hideAddToPlaylistDialog()
                                         }
@@ -279,7 +386,7 @@ fun PlayerScreen(
                                                 style = MaterialTheme.typography.bodyMedium
                                             )
                                             Text(
-                                                text = "${playlist.trackCount} songs",
+                                                text = "${playlist.trackCount} piste${if (playlist.trackCount > 1) "s" else ""}",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -292,8 +399,11 @@ fun PlayerScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.hideAddToPlaylistDialog() }) {
-                    Text("Cancel")
+                TextButton(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.hideAddToPlaylistDialog()
+                }) {
+                    Text("Annuler")
                 }
             }
         )
