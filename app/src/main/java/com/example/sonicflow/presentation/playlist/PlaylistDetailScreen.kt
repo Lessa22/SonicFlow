@@ -70,7 +70,7 @@ fun PlaylistDetailScreen(
                         items(uiState.tracks) { track ->
                             TrackItem(
                                 track = track,
-                                onClick = { onTrackClick(track) }
+                                onClick = { ("player/${track.id}") }
                             )
                         }
                     }

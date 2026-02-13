@@ -25,7 +25,9 @@ class PlaylistDetailViewModel @Inject constructor(
     private val musicRepository: MusicRepository
 ) : ViewModel() {
 
-    private val playlistId: Long = savedStateHandle.get<String>("playlistId")?.toLongOrNull() ?: 0L
+    private val playlistId: Long = savedStateHandle.get<Long>("playlistId")
+        ?: savedStateHandle.get<String>("playlistId")?.toLongOrNull()
+        ?: 0L
 
     private val _uiState = MutableStateFlow(PlaylistDetailUiState())
     val uiState: StateFlow<PlaylistDetailUiState> = _uiState.asStateFlow()

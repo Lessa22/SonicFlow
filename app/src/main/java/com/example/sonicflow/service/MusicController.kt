@@ -1,9 +1,11 @@
 package com.example.sonicflow.service
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.media3.common.util.UnstableApi
 
 data class PlayerState(
     val currentTrack: Track? = null,
@@ -28,6 +31,7 @@ data class PlayerState(
     val duration: Long = 0L
 )
 
+@UnstableApi
 @Singleton
 class MusicController @Inject constructor(
     private val player: ExoPlayer,
@@ -107,7 +111,7 @@ class MusicController @Inject constructor(
 
         // Créer les MediaItems avec métadonnées
         val mediaItems = tracks.map { t ->
-            androidx.media3.common.MediaItem.Builder()
+            MediaItem.Builder()
                 .setUri(t.path)
                 .setMediaMetadata(
                     androidx.media3.common.MediaMetadata.Builder()
@@ -135,11 +139,25 @@ class MusicController @Inject constructor(
     }
 
     private fun startMusicService() {
-        val serviceIntent = Intent(context, MusicService::class.java)
+        val intent = Intent(context, MusicService::class.java)
+
+        // ✅ FIX : Utiliser ContextCompat pour gérer Android 12+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent)
+            try {
+                ContextCompat.startForegroundService(context, intent)
+            } catch (e: IllegalStateException) {
+                // Si échec, essayer en service normal
+                context.startService(intent)
+            } catch (e: Exception) {
+                // Android 12+ interdit le démarrage depuis background
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (e is ForegroundServiceStartNotAllowedException) {
+                        Log.w("MusicController", "Cannot start foreground service from background")
+                    }
+                }
+            }
         } else {
-            context.startService(serviceIntent)
+            context.startService(intent)
         }
     }
 
@@ -149,6 +167,14 @@ class MusicController @Inject constructor(
         } else {
             player.play()
         }
+    }
+
+    fun pause() {
+        player.pause()
+    }
+
+    fun resume() {
+        player.play()
     }
 
     fun seekTo(position: Long) {

@@ -155,7 +155,7 @@ fun PlayerScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .animateContentSize()  // ✨ Animation smooth
+                            .animateContentSize()
                     ) {
                         if (uiState.waveformAmplitudes.isNotEmpty()) {
                             // Box animée pour le waveform
@@ -258,7 +258,7 @@ fun PlayerScreen(
                             },
                             modifier = Modifier
                                 .size(80.dp)
-                                .scale(playPauseScale)  // ✨ Animation scale
+                                .scale(playPauseScale)  // Animation scale
                         ) {
                             Icon(
                                 imageVector = if (uiState.isPlaying) {
